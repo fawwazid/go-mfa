@@ -69,9 +69,6 @@ func NewConfig(opts ...Option) *Config {
 // GenerateCode creates an HOTP code for the given secret and counter.
 // The secret should be a base32 encoded string.
 // It returns the OTP as a string of digits, padded with leading zeros.
-// GenerateCode creates an HOTP code for the given secret and counter.
-// The secret should be a base32 encoded string.
-// It returns the OTP as a string of digits, padded with leading zeros.
 func GenerateCode(secret string, counter uint64, opts ...Option) (string, error) {
 	key, err := DecodeSecret(secret)
 	if err != nil {
