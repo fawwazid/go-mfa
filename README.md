@@ -42,7 +42,7 @@ func main() {
     code, _ := totp.GenerateCode(secret)
     fmt.Println("Current OTP:", code)
 
-// Validate a user's input
+    // Validate a user's input
     valid := totp.Validate(code, secret)
     if valid {
         fmt.Println("Access Granted")
