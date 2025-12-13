@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base32"
+	"strings"
 	"testing"
 	"time"
 )
@@ -150,7 +151,7 @@ func TestGenerateURL(t *testing.T) {
 		"period=30",
 	}
 	for _, sub := range expectedSubstrings {
-		if !contains(url, sub) {
+		if !strings.Contains(url, sub) {
 			t.Errorf("URL missing %s. Got: %s", sub, url)
 		}
 	}
@@ -209,7 +210,7 @@ func TestGenerateEnrollment(t *testing.T) {
 	}
 
 	// Check URL
-	if !contains(enroll.URL, "otpauth://totp/GoMFA:user@example.com") {
+	if !strings.Contains(enroll.URL, "otpauth://totp/GoMFA:user@example.com") {
 		t.Errorf("Enrollment.URL malformed: %s", enroll.URL)
 	}
 
@@ -221,8 +222,4 @@ func TestGenerateEnrollment(t *testing.T) {
 	if bounds.Dx() != 256 || bounds.Dy() != 256 {
 		t.Errorf("Enrollment.Image size = %dx%d, want 256x256", bounds.Dx(), bounds.Dy())
 	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[0:len(substr)] == substr || contains(s[1:], substr)))
 }
