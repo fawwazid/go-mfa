@@ -152,7 +152,12 @@ func Validate(passcode, secret string, opts ...Option) bool {
 	// Check current, then back, then forward
 	// Range: [current - skew, current + skew]
 
-	start := currentCounter - uint64(config.Skew)
+	var start uint64
+	if currentCounter >= uint64(config.Skew) {
+		start = currentCounter - uint64(config.Skew)
+	} else {
+		start = 0
+	}
 	end := currentCounter + uint64(config.Skew)
 
 	for i := start; i <= end; i++ {
