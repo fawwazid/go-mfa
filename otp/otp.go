@@ -66,7 +66,9 @@ func NewConfig(opts ...Option) *Config {
 		Charset: Digits,
 	}
 	for _, opt := range opts {
-		opt(c)
+		if opt != nil {
+			opt(c)
+		}
 	}
 	return c
 }

@@ -69,3 +69,13 @@ func TestValidate(t *testing.T) {
 		t.Error("Validate() should be false for mismatches")
 	}
 }
+
+func TestNilOption(t *testing.T) {
+	code, err := Generate(nil)
+	if err != nil {
+		t.Fatalf("Generate(nil) error = %v", err)
+	}
+	if len(code) != DefaultLength {
+		t.Fatalf("Generate(nil) length = %d, want %d", len(code), DefaultLength)
+	}
+}

@@ -6,9 +6,9 @@ import (
 	"crypto/sha1"
 	"encoding/base32"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash"
-	"math"
 	"strings"
 
 	"github.com/fawwazid/go-mfa/utils"
@@ -17,7 +17,17 @@ import (
 // Default settings for HOTP.
 const (
 	DefaultLength = 6
-	DefaultAlgo   = "sha1"
+	DefaultAlgo   = "sha1" // Deprecated: use sha1.New when configuring the algorithm.
+	MinLength     = 1
+	MaxLength     = 10
+)
+
+var (
+	ErrInvalidLength    = errors.New("HOTP length must be between 1 and 10 digits")
+	ErrInvalidAlgorithm = errors.New("HOTP algorithm must not be nil")
+	ErrInvalidHash      = errors.New("HOTP algorithm returned a hash that is too short")
+	ErrInvalidEncoder   = errors.New("HOTP Base32 encoder must not be nil")
+	ErrInvalidSecret    = errors.New("HOTP secret must not be empty")
 )
 
 // Config represents the configuration for HOTP generation.
@@ -45,12 +55,17 @@ func WithAlgorithm(h func() hash.Hash) Option {
 	}
 }
 
-// WithCustomBase32 allows setting a custom Base32 alphabet (if not standard).
-// This is typically not needed for standard authenticator apps.
-func WithCustomBase32(padding string) Option {
+// WithEncoder sets the Base32 encoding used to decode secrets.
+func WithEncoder(encoder *base32.Encoding) Option {
 	return func(c *Config) {
-		// Placeholder for custom base32 implementations if needed in future
+		c.Encoder = encoder
 	}
+}
+
+// WithCustomBase32 is retained for source compatibility.
+// Deprecated: use WithEncoder with an explicit base32.Encoding.
+func WithCustomBase32(_ string) Option {
+	return func(*Config) {}
 }
 
 // NewConfig creates a new Config with default values and applies the given options.
@@ -61,7 +76,9 @@ func NewConfig(opts ...Option) *Config {
 		Encoder:   base32.StdEncoding.WithPadding(base32.NoPadding),
 	}
 	for _, opt := range opts {
-		opt(c)
+		if opt != nil {
+			opt(c)
+		}
 	}
 	return c
 }
@@ -70,17 +87,31 @@ func NewConfig(opts ...Option) *Config {
 // The secret should be a base32 encoded string.
 // It returns the OTP as a string of digits, padded with leading zeros.
 func GenerateCode(secret string, counter uint64, opts ...Option) (string, error) {
-	key, err := DecodeSecret(secret)
+	config := NewConfig(opts...)
+	if err := config.validate(); err != nil {
+		return "", err
+	}
+	key, err := decodeSecret(secret, config.Encoder)
 	if err != nil {
 		return "", err
 	}
-	return GenerateCodeFromKey(key, counter, opts...)
+	return generateCodeFromKey(key, counter, config)
 }
 
 // GenerateCodeFromKey creates an HOTP code using the raw decoded key bytes.
 // This is useful for optimization when the key is already decoded (e.g. in loops).
 func GenerateCodeFromKey(key []byte, counter uint64, opts ...Option) (string, error) {
 	config := NewConfig(opts...)
+	if err := config.validate(); err != nil {
+		return "", err
+	}
+	return generateCodeFromKey(key, counter, config)
+}
+
+func generateCodeFromKey(key []byte, counter uint64, config *Config) (string, error) {
+	if len(key) == 0 {
+		return "", ErrInvalidSecret
+	}
 
 	// HMAC Generation
 	h := hmac.New(config.Algorithm, key)
@@ -89,33 +120,65 @@ func GenerateCodeFromKey(key []byte, counter uint64, opts ...Option) (string, er
 
 	// Dynamic Truncation
 	offset := mac[len(mac)-1] & 0xf
+	if int(offset)+4 > len(mac) {
+		return "", ErrInvalidHash
+	}
 	binCode := binary.BigEndian.Uint32(mac[offset:offset+4]) & 0x7fffffff
 
 	// Modulo
-	mod := int(math.Pow10(config.Length))
-	otp := binCode % uint32(mod)
+	mod := uint64(1)
+	for range config.Length {
+		mod *= 10
+	}
+	otp := uint64(binCode) % mod
 
 	// Format with leading zeros
 	format := fmt.Sprintf("%%0%dd", config.Length)
 	return fmt.Sprintf(format, otp), nil
 }
 
-// DecodeSecret handles base32 decoding with loose padding requirements.
-// It normalizes the input (uppercase, trim) and adds missing padding if needed.
+// DecodeSecret handles Base32 decoding case-insensitively and accepts optional padding.
 func DecodeSecret(secret string) ([]byte, error) {
-	// Authenticators often don't use padding, so we handle that by ensuring we conform to what the lib expects
-	secret = strings.ToUpper(strings.TrimSpace(secret))
+	return decodeSecret(secret, base32.StdEncoding.WithPadding(base32.NoPadding))
+}
 
-	padLen := len(secret) % 8
-	if padLen != 0 {
-		secret += strings.Repeat("=", 8-padLen)
+func decodeSecret(secret string, encoder *base32.Encoding) ([]byte, error) {
+	secret = strings.TrimSpace(secret)
+	candidates := []string{
+		secret,
+		strings.TrimRight(secret, "="),
+		strings.ToUpper(secret),
+		strings.TrimRight(strings.ToUpper(secret), "="),
 	}
+	var decodeErr error
+	for _, candidate := range candidates {
+		key, err := encoder.DecodeString(candidate)
+		if err == nil {
+			if len(key) == 0 {
+				return nil, errors.New("invalid base32 secret: secret must not be empty")
+			}
+			return key, nil
+		}
+		decodeErr = err
+	}
+	return nil, fmt.Errorf("invalid base32 secret: %w", decodeErr)
+}
 
-	key, err := base32.StdEncoding.DecodeString(secret)
-	if err != nil {
-		return nil, fmt.Errorf("invalid base32 secret: %v", err)
+func (c *Config) validate() error {
+	if c.Length < MinLength || c.Length > MaxLength {
+		return ErrInvalidLength
 	}
-	return key, nil
+	if c.Algorithm == nil {
+		return ErrInvalidAlgorithm
+	}
+	sample := c.Algorithm()
+	if sample == nil || sample.Size() < 20 || sample.BlockSize() < 1 {
+		return ErrInvalidHash
+	}
+	if c.Encoder == nil {
+		return ErrInvalidEncoder
+	}
+	return nil
 }
 
 // Validate checks if the provided passcode matches the generated HOTP code

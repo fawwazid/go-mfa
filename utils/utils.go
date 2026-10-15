@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"math/big"
+	"unicode/utf8"
 )
 
 // GenericRandomBytes generates a slice of random bytes of the given size.
@@ -34,15 +35,19 @@ func CryptoRandomString(length int, charset string) (string, error) {
 		return "", errors.New("charset cannot be empty")
 	}
 
-	result := make([]byte, length)
-	charsetLen := big.NewInt(int64(len(charset)))
+	if !utf8.ValidString(charset) {
+		return "", errors.New("charset must contain valid UTF-8")
+	}
+	runes := []rune(charset)
+	result := make([]rune, length)
+	charsetLen := big.NewInt(int64(len(runes)))
 
 	for i := 0; i < length; i++ {
 		num, err := rand.Int(rand.Reader, charsetLen)
 		if err != nil {
 			return "", err
 		}
-		result[i] = charset[num.Int64()]
+		result[i] = runes[num.Int64()]
 	}
 
 	return string(result), nil
