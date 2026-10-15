@@ -1,9 +1,11 @@
 package totp
 
 import (
+	"crypto/md5"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base32"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -172,14 +174,16 @@ func TestGenerateSecret(t *testing.T) {
 		t.Errorf("GenerateSecret(nil) length = %d, want 32", len(sec1))
 	}
 
-	// 2. SHA256 (32 bytes -> 52-56 chars depending on padding)
-	// 32 * 8 / 5 = 51.2 -> 56 chars with padding
+	// 2. SHA256 (32 bytes -> 52 chars without padding)
 	sec2, err := GenerateSecret(sha256.New)
 	if err != nil {
 		t.Fatalf("GenerateSecret(sha256) error: %v", err)
 	}
 	if len(sec2) == 0 {
 		t.Error("GenerateSecret(sha256) returned empty")
+	}
+	if len(sec2) != 52 || strings.Contains(sec2, "=") {
+		t.Errorf("GenerateSecret(sha256) = %q, want 52 unpadded characters", sec2)
 	}
 
 	// 3. SHA512 (64 bytes -> 103-104 chars)
@@ -189,6 +193,9 @@ func TestGenerateSecret(t *testing.T) {
 	}
 	if len(sec3) == 0 {
 		t.Error("GenerateSecret(sha512) returned empty")
+	}
+	if len(sec3) != 103 || strings.Contains(sec3, "=") {
+		t.Errorf("GenerateSecret(sha512) = %q, want 103 unpadded characters", sec3)
 	}
 }
 
@@ -221,5 +228,37 @@ func TestGenerateEnrollment(t *testing.T) {
 	bounds := enroll.Image.Bounds()
 	if bounds.Dx() != 256 || bounds.Dy() != 256 {
 		t.Errorf("Enrollment.Image size = %dx%d, want 256x256", bounds.Dx(), bounds.Dy())
+	}
+}
+
+func TestInvalidConfiguration(t *testing.T) {
+	secret := getRFCSecret(t, 20)
+
+	if _, err := GenerateCode(secret, WithPeriod(0)); !errors.Is(err, ErrInvalidPeriod) {
+		t.Fatalf("GenerateCode() error = %v, want %v", err, ErrInvalidPeriod)
+	}
+	if Validate("123456", secret, WithPeriod(0)) {
+		t.Fatal("Validate() accepted a zero period")
+	}
+	if _, err := GenerateCode(secret, WithTime(time.Unix(-1, 0))); err == nil {
+		t.Fatal("GenerateCode() accepted a time before the Unix epoch")
+	}
+	if Validate("123456", secret, WithTime(time.Unix(-1, 0))) {
+		t.Fatal("Validate() accepted a time before the Unix epoch")
+	}
+	if _, err := GenerateCode(secret, WithAlgorithm(md5.New)); !errors.Is(err, ErrUnsupportedAlgorithm) {
+		t.Fatalf("GenerateCode() error = %v, want %v", err, ErrUnsupportedAlgorithm)
+	}
+	if uri := GenerateURL("user", "issuer", secret, WithAlgorithm(md5.New)); uri != "" {
+		t.Fatalf("GenerateURL() returned URI for unsupported algorithm: %s", uri)
+	}
+	if Validate("123456", secret, WithSkew(MaxSkew+1)) {
+		t.Fatal("Validate() accepted an excessive skew")
+	}
+	if _, err := GenerateQR("user", "issuer", secret, MaxQRSize+1); !errors.Is(err, ErrInvalidQRSize) {
+		t.Fatalf("GenerateQR() error = %v, want %v", err, ErrInvalidQRSize)
+	}
+	if _, err := GenerateURLChecked("bad:account", "issuer", secret); !errors.Is(err, ErrInvalidLabel) {
+		t.Fatalf("GenerateURLChecked() error = %v, want %v", err, ErrInvalidLabel)
 	}
 }

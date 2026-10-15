@@ -30,3 +30,8 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Agent skills
+.agents/
+.claude/
+skills-lock.json

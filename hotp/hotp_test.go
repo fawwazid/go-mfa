@@ -1,8 +1,11 @@
 package hotp
 
 import (
+	"crypto/md5"
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
+	"errors"
 	"testing"
 )
 
@@ -75,4 +78,40 @@ func TestAlgorithms(t *testing.T) {
 			t.Errorf("Length expected 6, got %d", len(code))
 		}
 	})
+}
+
+func TestInvalidConfiguration(t *testing.T) {
+	tests := []struct {
+		name string
+		opts []Option
+		want error
+	}{
+		{"zero length", []Option{WithLength(0)}, ErrInvalidLength},
+		{"excessive length", []Option{WithLength(MaxLength + 1)}, ErrInvalidLength},
+		{"nil algorithm", []Option{WithAlgorithm(nil)}, ErrInvalidAlgorithm},
+		{"short hash", []Option{WithAlgorithm(md5.New)}, ErrInvalidHash},
+		{"nil encoder", []Option{WithEncoder(nil)}, ErrInvalidEncoder},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := GenerateCode(rfcSecretBase32, 0, tt.opts...)
+			if err == nil || err.Error() != tt.want.Error() {
+				t.Fatalf("GenerateCode() error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+
+	if _, err := GenerateCode("", 0); err == nil {
+		t.Fatal("GenerateCode() accepted an empty secret")
+	}
+	if _, err := GenerateCodeFromKey(nil, 0); !errors.Is(err, ErrInvalidSecret) {
+		t.Fatalf("GenerateCodeFromKey() error = %v, want %v", err, ErrInvalidSecret)
+	}
+	if _, err := GenerateCode(rfcSecretBase32+"====", 0, WithAlgorithm(sha1.New)); err != nil {
+		t.Fatalf("GenerateCode() rejected a padded secret: %v", err)
+	}
+	if !Validate("755224", rfcSecretBase32, 0, nil) {
+		t.Fatal("Validate() rejected a nil option")
+	}
 }

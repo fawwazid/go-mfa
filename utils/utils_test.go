@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/binary"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestCryptoRandomString(t *testing.T) {
@@ -44,6 +45,33 @@ func TestCryptoRandomString(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCryptoRandomStringUnicode(t *testing.T) {
+	const charset = "αβ🙂"
+	got, err := CryptoRandomString(32, charset)
+	if err != nil {
+		t.Fatalf("CryptoRandomString() error = %v", err)
+	}
+	if count := utf8.RuneCountInString(got); count != 32 {
+		t.Fatalf("CryptoRandomString() rune count = %d, want 32", count)
+	}
+	for _, char := range got {
+		found := false
+		for _, allowed := range charset {
+			if char == allowed {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("CryptoRandomString() contained invalid rune %q", char)
+		}
+	}
+
+	if _, err := CryptoRandomString(1, string([]byte{0xff})); err == nil {
+		t.Fatal("CryptoRandomString() accepted invalid UTF-8")
 	}
 }
 

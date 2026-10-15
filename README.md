@@ -13,6 +13,14 @@ It supports:
 - **QR Code Generation**: Built-in helper to generate QR codes compatible with Google Authenticator, Microsoft Authenticator, etc.
 - **Secure**: Uses `crypto/rand` and constant-time comparisons to prevent timing attacks.
 
+## Security considerations
+
+- Store MFA secrets encrypted and restrict access to them.
+- Rate-limit validation attempts; this library validates codes but does not track attempts.
+- Prevent replay in the application. For HOTP, atomically advance the counter after success. For TOTP, record the accepted time step when your threat model requires one-time use.
+- Prefer the default 30-second period and a small validation skew. Large windows increase the opportunity for code reuse.
+- Always handle errors returned by generation and enrollment functions.
+
 ## Installation
 
 ```bash
