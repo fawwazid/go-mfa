@@ -1,264 +1,144 @@
 package totp
 
 import (
-	"crypto/md5"
-	"crypto/sha256"
-	"crypto/sha512"
+	"crypto"
 	"encoding/base32"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
 )
 
-// RFC 6238 Secret Generation helper
 func getRFCSecret(t *testing.T, size int) string {
-	// RFC 6238 Appendix B: The secret is a string of "1234567890..." repeated.
-	// SHA1: 20 bytes
-	// SHA256: 32 bytes
-	// SHA512: 64 bytes
-	pattern := "12345678901234567890"
-	raw := ""
-	for len(raw) < size {
-		raw += pattern
-	}
-	raw = raw[:size]
-	return base32.StdEncoding.EncodeToString([]byte(raw))
+	t.Helper()
+	raw := strings.Repeat("1234567890", 7)[:size]
+	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString([]byte(raw))
 }
 
 func TestRFC6238Vectors(t *testing.T) {
-	// Vectors from RFC 6238 Appendix B (Table 1) - All are 8 digits
-
-	// Mode: SHA1
-	testsSha1 := []struct {
-		ts   int64
-		code string
+	times := []int64{59, 1111111109, 1111111111, 1234567890, 2000000000, 20000000000}
+	for _, tc := range []struct {
+		hash  crypto.Hash
+		size  int
+		codes []string
 	}{
-		{59, "94287082"},
-		{1111111109, "07081804"},
-		{1111111111, "14050471"},
-		{1234567890, "89005924"},
-		{2000000000, "69279037"},
-		{20000000000, "65353130"},
-	}
-
-	secretSha1 := getRFCSecret(t, 20)
-	for _, v := range testsSha1 {
-		tm := time.Unix(v.ts, 0)
-		got, err := GenerateCode(secretSha1, WithTime(tm), WithLength(8))
-		if err != nil {
-			t.Errorf("SHA1 GenerateCode(ts=%d) error = %v", v.ts, err)
-			continue
-		}
-		if got != v.code {
-			t.Errorf("SHA1 GenerateCode(ts=%d) = %s, want %s", v.ts, got, v.code)
-		}
-	}
-
-	// Mode: SHA256
-	testsSha256 := []struct {
-		ts   int64
-		code string
-	}{
-		{59, "46119246"},
-		{1111111109, "68084774"},
-		{1111111111, "67062674"},
-		{1234567890, "91819424"},
-		{2000000000, "90698825"},
-		{20000000000, "77737706"},
-	}
-
-	secretSha256 := getRFCSecret(t, 32)
-	for _, v := range testsSha256 {
-		tm := time.Unix(v.ts, 0)
-		got, err := GenerateCode(secretSha256, WithTime(tm), WithAlgorithm(sha256.New), WithLength(8))
-		if err != nil {
-			t.Errorf("SHA256 GenerateCode(ts=%d) error = %v", v.ts, err)
-			continue
-		}
-		if got != v.code {
-			t.Errorf("SHA256 GenerateCode(ts=%d) = %s, want %s", v.ts, got, v.code)
-		}
-	}
-
-	// Mode: SHA512
-	testsSha512 := []struct {
-		ts   int64
-		code string
-	}{
-		{59, "90693936"},
-		{1111111109, "25091201"},
-		{1111111111, "99943326"},
-		{1234567890, "93441116"},
-		{2000000000, "38618901"},
-		{20000000000, "47863826"},
-	}
-
-	secretSha512 := getRFCSecret(t, 64)
-	for _, v := range testsSha512 {
-		tm := time.Unix(v.ts, 0)
-		got, err := GenerateCode(secretSha512, WithTime(tm), WithAlgorithm(sha512.New), WithLength(8))
-		if err != nil {
-			t.Errorf("SHA512 GenerateCode(ts=%d) error = %v", v.ts, err)
-			continue
-		}
-		if got != v.code {
-			t.Errorf("SHA512 GenerateCode(ts=%d) = %s, want %s", v.ts, got, v.code)
+		{crypto.SHA256, 32, []string{"46119246", "68084774", "67062674", "91819424", "90698825", "77737706"}},
+		{crypto.SHA512, 64, []string{"90693936", "25091201", "99943326", "93441116", "38618901", "47863826"}},
+	} {
+		secret := getRFCSecret(t, tc.size)
+		for i, seconds := range times {
+			code, err := GenerateCode(secret, WithTime(time.Unix(seconds, 0)), WithAlgorithm(tc.hash), WithLength(8))
+			if err != nil || code != tc.codes[i] {
+				t.Fatalf("hash=%v time=%d code=%q err=%v", tc.hash, seconds, code, err)
+			}
 		}
 	}
 }
 
 func TestValidateSkew(t *testing.T) {
-	// Using default settings (30s period, SHA1, 6 digits)
-	secret := getRFCSecret(t, 20)
-	now := time.Now()
-
-	// Skew = 1 (default) means we accept [now-30s, now, now+30s]
-
-	// 1. Current time -> Valid
-	codeNow, _ := GenerateCode(secret, WithTime(now))
-	if !Validate(codeNow, secret, WithTime(now)) {
-		t.Error("Validation failed for current time")
+	secret := getRFCSecret(t, 32)
+	now := time.Unix(1234567890, 0)
+	for _, offset := range []int64{-30, 0, 30} {
+		code, err := GenerateCode(secret, WithTime(now.Add(time.Duration(offset)*time.Second)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !Validate(code, secret, WithTime(now)) {
+			t.Fatalf("rejected skew %d", offset)
+		}
 	}
-
-	// 2. Previous interval (-30s) -> Valid
-	codePrev, _ := GenerateCode(secret, WithTime(now.Add(-30*time.Second)))
-	if !Validate(codePrev, secret, WithTime(now)) {
-		t.Error("Validation failed for previous interval (accepting skew)")
+	code, err := GenerateCode(secret, WithTime(now.Add(-90*time.Second)))
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	// 3. Next interval (+30s) -> Valid
-	codeNext, _ := GenerateCode(secret, WithTime(now.Add(30*time.Second)))
-	if !Validate(codeNext, secret, WithTime(now)) {
-		t.Error("Validation failed for next interval (accepting skew)")
+	if Validate(code, secret, WithTime(now)) {
+		t.Fatal("accepted expired code")
 	}
+}
 
-	// 4. Too old (-65s) -> Invalid
-	codeOld, _ := GenerateCode(secret, WithTime(now.Add(-65*time.Second)))
-	if Validate(codeOld, secret, WithTime(now)) {
-		t.Error("Validation passed for expired code (outside skew)")
+func TestValidateAtMaximumUnixTime(t *testing.T) {
+	secret := getRFCSecret(t, 32)
+	opts := []Option{WithTime(time.Unix(math.MaxInt64, 0)), WithPeriod(1), WithSkew(MaxSkew)}
+	code, err := GenerateCode(secret, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !Validate(code, secret, opts...) {
+		t.Fatal("rejected code at the maximum supported Unix time")
 	}
 }
 
 func TestGenerateURL(t *testing.T) {
-	secret := "JBSWY3DPEHPK3PXP"
-	url := GenerateURL("user", "issuer", secret)
-	// Expect standard keys
-	expectedSubstrings := []string{
-		"otpauth://totp/issuer:user",
-		"secret=JBSWY3DPEHPK3PXP",
-		"issuer=issuer",
-		"algorithm=SHA1",
-		"digits=6",
-		"period=30",
+	secret := getRFCSecret(t, 32)
+	uri, err := GenerateURL("user", "issuer", secret)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, sub := range expectedSubstrings {
-		if !strings.Contains(url, sub) {
-			t.Errorf("URL missing %s. Got: %s", sub, url)
+	for _, part := range []string{"otpauth://totp/issuer:user", "secret=" + secret, "issuer=issuer", "algorithm=SHA256", "digits=6", "period=30"} {
+		if !strings.Contains(uri, part) {
+			t.Fatalf("missing %q in %q", part, uri)
 		}
 	}
 }
 
 func TestGenerateSecret(t *testing.T) {
-	// 1. Default (SHA1 -> 20 bytes -> 32 chars base32)
-	sec1, err := GenerateSecret(nil)
-	if err != nil {
-		t.Fatalf("GenerateSecret(nil) error: %v", err)
+	for _, tc := range []struct {
+		hash   crypto.Hash
+		length int
+	}{{crypto.SHA256, 52}, {crypto.SHA512, 103}} {
+		secret, err := GenerateSecret(tc.hash)
+		if err != nil || len(secret) != tc.length || strings.Contains(secret, "=") {
+			t.Fatalf("secret=%q, %v", secret, err)
+		}
 	}
-	if len(sec1) == 0 {
-		t.Error("GenerateSecret(nil) returned empty string")
-	}
-	// Base32 standard encoding of 20 bytes is 32 chars
-	// (20 * 8) / 5 = 32
-	if len(sec1) != 32 {
-		t.Errorf("GenerateSecret(nil) length = %d, want 32", len(sec1))
-	}
-
-	// 2. SHA256 (32 bytes -> 52 chars without padding)
-	sec2, err := GenerateSecret(sha256.New)
-	if err != nil {
-		t.Fatalf("GenerateSecret(sha256) error: %v", err)
-	}
-	if len(sec2) == 0 {
-		t.Error("GenerateSecret(sha256) returned empty")
-	}
-	if len(sec2) != 52 || strings.Contains(sec2, "=") {
-		t.Errorf("GenerateSecret(sha256) = %q, want 52 unpadded characters", sec2)
-	}
-
-	// 3. SHA512 (64 bytes -> 103-104 chars)
-	sec3, err := GenerateSecret(sha512.New)
-	if err != nil {
-		t.Fatalf("GenerateSecret(sha512) error: %v", err)
-	}
-	if len(sec3) == 0 {
-		t.Error("GenerateSecret(sha512) returned empty")
-	}
-	if len(sec3) != 103 || strings.Contains(sec3, "=") {
-		t.Errorf("GenerateSecret(sha512) = %q, want 103 unpadded characters", sec3)
+	for _, hash := range []crypto.Hash{0, crypto.SHA1, crypto.MD5} {
+		if _, err := GenerateSecret(hash); err == nil {
+			t.Fatal("accepted unsupported hash", hash)
+		}
 	}
 }
 
 func TestGenerateEnrollment(t *testing.T) {
-	secret := "JBSWY3DPEHPK3PXP"
-
-	enroll, err := GenerateEnrollment("user@example.com", "GoMFA", secret, 256)
+	secret := getRFCSecret(t, 32)
+	enrollment, err := GenerateEnrollment("user@example.com", "App", secret, 256)
 	if err != nil {
-		t.Fatalf("GenerateEnrollment error: %v", err)
+		t.Fatal(err)
 	}
-
-	if enroll == nil {
-		t.Fatal("GenerateEnrollment returned nil struct")
+	if enrollment.Secret != secret || !strings.Contains(enrollment.URL, "algorithm=SHA256") {
+		t.Fatal("incorrect enrollment")
 	}
-
-	// Check Secret
-	if enroll.Secret != secret {
-		t.Errorf("Enrollment.Secret = %s, want %s", enroll.Secret, secret)
-	}
-
-	// Check URL
-	if !strings.Contains(enroll.URL, "otpauth://totp/GoMFA:user@example.com") {
-		t.Errorf("Enrollment.URL malformed: %s", enroll.URL)
-	}
-
-	// Check Image (basic check)
-	if enroll.Image == nil {
-		t.Error("Enrollment.Image is nil")
-	}
-	bounds := enroll.Image.Bounds()
-	if bounds.Dx() != 256 || bounds.Dy() != 256 {
-		t.Errorf("Enrollment.Image size = %dx%d, want 256x256", bounds.Dx(), bounds.Dy())
+	if enrollment.Image == nil || enrollment.Image.Bounds().Dx() != 256 || enrollment.Image.Bounds().Dy() != 256 {
+		t.Fatal("incorrect QR size")
 	}
 }
 
 func TestInvalidConfiguration(t *testing.T) {
-	secret := getRFCSecret(t, 20)
-
+	secret := getRFCSecret(t, 32)
 	if _, err := GenerateCode(secret, WithPeriod(0)); !errors.Is(err, ErrInvalidPeriod) {
-		t.Fatalf("GenerateCode() error = %v, want %v", err, ErrInvalidPeriod)
+		t.Fatal(err)
 	}
 	if Validate("123456", secret, WithPeriod(0)) {
-		t.Fatal("Validate() accepted a zero period")
+		t.Fatal("accepted invalid period")
 	}
-	if _, err := GenerateCode(secret, WithTime(time.Unix(-1, 0))); err == nil {
-		t.Fatal("GenerateCode() accepted a time before the Unix epoch")
-	}
-	if Validate("123456", secret, WithTime(time.Unix(-1, 0))) {
-		t.Fatal("Validate() accepted a time before the Unix epoch")
-	}
-	if _, err := GenerateCode(secret, WithAlgorithm(md5.New)); !errors.Is(err, ErrUnsupportedAlgorithm) {
-		t.Fatalf("GenerateCode() error = %v, want %v", err, ErrUnsupportedAlgorithm)
-	}
-	if uri := GenerateURL("user", "issuer", secret, WithAlgorithm(md5.New)); uri != "" {
-		t.Fatalf("GenerateURL() returned URI for unsupported algorithm: %s", uri)
+	if _, err := GenerateCode(secret, WithTime(time.Unix(-1, 0))); !errors.Is(err, ErrInvalidTime) {
+		t.Fatal(err)
 	}
 	if Validate("123456", secret, WithSkew(MaxSkew+1)) {
-		t.Fatal("Validate() accepted an excessive skew")
+		t.Fatal("accepted invalid skew")
+	}
+	for _, hash := range []crypto.Hash{0, crypto.SHA1, crypto.MD5} {
+		if _, err := GenerateCode(secret, WithAlgorithm(hash)); err == nil {
+			t.Fatal("accepted unsupported hash")
+		}
+		if _, err := GenerateURL("user", "issuer", secret, WithAlgorithm(hash)); err == nil {
+			t.Fatal("suppressed URI error")
+		}
 	}
 	if _, err := GenerateQR("user", "issuer", secret, MaxQRSize+1); !errors.Is(err, ErrInvalidQRSize) {
-		t.Fatalf("GenerateQR() error = %v, want %v", err, ErrInvalidQRSize)
+		t.Fatal(err)
 	}
-	if _, err := GenerateURLChecked("bad:account", "issuer", secret); !errors.Is(err, ErrInvalidLabel) {
-		t.Fatalf("GenerateURLChecked() error = %v, want %v", err, ErrInvalidLabel)
+	if _, err := GenerateURL("bad:account", "issuer", secret); !errors.Is(err, ErrInvalidLabel) {
+		t.Fatal(err)
 	}
 }

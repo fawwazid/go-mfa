@@ -17,8 +17,7 @@ func GenericRandomBytes(size int) ([]byte, error) {
 		return nil, errors.New("size must be greater than 0")
 	}
 	bytes := make([]byte, size)
-	_, err := rand.Read(bytes)
-	if err != nil {
+	if _, err := rand.Read(bytes); err != nil {
 		return nil, err
 	}
 	return bytes, nil
@@ -53,15 +52,12 @@ func CryptoRandomString(length int, charset string) (string, error) {
 	return string(result), nil
 }
 
-// ConstantTimeCompare compares two strings in constant time to avoid timing attacks.
-// It returns true if the strings are identical, false otherwise.
-// This is critical for validating sensitive tokens like OTPs.
+// ConstantTimeCompare compares equal-length strings in constant time.
 func ConstantTimeCompare(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 // Itob converts a uint64 to an 8-byte slice in Big Endian byte order.
-// This is typically used for converting the counter or time value before hashing.
 func Itob(i uint64) []byte {
 	buf := make([]byte, 8)
 	binary.BigEndian.PutUint64(buf, i)
