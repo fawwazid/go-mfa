@@ -3,7 +3,11 @@
 package otp
 
 import (
-	"github.com/fawwazid/go-mfa/utils"
+	"errors"
+	"math"
+	"unicode/utf8"
+
+	"github.com/fawwazid/go-mfa/v2/utils"
 )
 
 // Default settings for OTP generation.
@@ -77,11 +81,28 @@ func NewConfig(opts ...Option) *Config {
 // Defaults to 6 digits if no options are provided.
 func Generate(opts ...Option) (string, error) {
 	config := NewConfig(opts...)
+	if config.Length < 1 || config.Length > 1024 || len(config.Charset) > 4096 || !utf8.ValidString(config.Charset) {
+		return "", errors.New("invalid OTP length or charset")
+	}
+	unique := make(map[rune]bool)
+	for _, r := range config.Charset {
+		if unique[r] {
+			return "", errors.New("OTP charset must not contain duplicate characters")
+		}
+		unique[r] = true
+	}
+	// SP 800-63B-4 requires at least six decimal digits or equivalent entropy.
+	if len(unique) < 2 || float64(config.Length)*math.Log2(float64(len(unique))) < math.Log2(1_000_000) {
+		return "", errors.New("OTP must provide at least six decimal digits of entropy")
+	}
 	return utils.CryptoRandomString(config.Length, config.Charset)
 }
 
 // Validate compares the input OTP with the expected OTP in constant time.
 // It returns true if they match, false otherwise.
 func Validate(input, expected string) bool {
+	if expected == "" {
+		return false
+	}
 	return utils.ConstantTimeCompare(input, expected)
 }

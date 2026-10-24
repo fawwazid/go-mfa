@@ -3,24 +3,21 @@
 package totp
 
 import (
-	"crypto/sha1"
-	"crypto/sha256"
-	"crypto/sha512"
+	"crypto"
 	"encoding/base32"
 	"errors"
 	"fmt"
-	"hash"
 	"image"
 	"net/url"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/boombuler/barcode"
 	"github.com/boombuler/barcode/qr"
-	"github.com/fawwazid/go-mfa/hotp"
-	"github.com/fawwazid/go-mfa/utils"
+	"github.com/fawwazid/go-mfa/v2/hotp"
+	"github.com/fawwazid/go-mfa/v2/internal/algorithm"
+	"github.com/fawwazid/go-mfa/v2/utils"
 )
 
 const (
@@ -31,21 +28,16 @@ const (
 )
 
 var (
-	ErrInvalidPeriod        = errors.New("TOTP period must be greater than zero")
-	ErrInvalidSkew          = errors.New("TOTP skew must not exceed 10 periods")
-	ErrInvalidTime          = errors.New("TOTP time must not be before the Unix epoch")
-	ErrUnsupportedAlgorithm = errors.New("TOTP algorithm must be SHA-1, SHA-256, or SHA-512")
-	ErrInvalidQRSize        = errors.New("TOTP QR size must be between 1 and 4096 pixels")
-	ErrInvalidLabel         = errors.New("TOTP account and issuer must be non-empty and must not contain colons")
+	ErrInvalidPeriod = errors.New("TOTP period must be greater than zero")
+	ErrInvalidSkew   = errors.New("TOTP skew must not exceed 10 periods")
+	ErrInvalidTime   = errors.New("TOTP time must not be before the Unix epoch")
+	ErrInvalidQRSize = errors.New("TOTP QR size must be between 1 and 4096 pixels")
+	ErrInvalidLabel  = errors.New("TOTP account and issuer must be non-empty and must not contain colons")
 )
 
-// GenerateSecret creates a new random Base32 encoded secret of the given type.
-// If sha1 is used, 20 bytes are generated.
-// If sha256 is used, 32 bytes are generated.
-// If sha512 is used, 64 bytes are generated.
-// If algo is nil, it defaults to SHA1 (20 bytes).
-func GenerateSecret(algo func() hash.Hash) (string, error) {
-	_, size, err := getAlgoParams(algo)
+// GenerateSecret creates a canonical Base32 secret for crypto.SHA256 or crypto.SHA512.
+func GenerateSecret(hash crypto.Hash) (string, error) {
+	_, size, err := algorithm.Params(hash)
 	if err != nil {
 		return "", err
 	}
@@ -62,7 +54,7 @@ type Config struct {
 	Period    uint64
 	Skew      uint
 	Time      time.Time
-	Algorithm func() hash.Hash
+	Algorithm crypto.Hash
 	Length    int
 }
 
@@ -93,16 +85,14 @@ func WithTime(t time.Time) Option {
 }
 
 // WithLength sets the length of the generated OTP (e.g., 6 or 8 digits).
-// It re-exports the option from the hotp package for convenience.
 func WithLength(l int) Option {
 	return func(c *Config) {
 		c.Length = l
 	}
 }
 
-// WithAlgorithm sets the HMAC algorithm.
-// It re-exports the option from the hotp package for convenience.
-func WithAlgorithm(h func() hash.Hash) Option {
+// WithAlgorithm selects crypto.SHA256 or crypto.SHA512.
+func WithAlgorithm(h crypto.Hash) Option {
 	return func(c *Config) {
 		c.Algorithm = h
 	}
@@ -115,7 +105,7 @@ func NewConfig(opts ...Option) *Config {
 		Skew:      DefaultSkew,
 		Time:      time.Now(),
 		Length:    hotp.DefaultLength,
-		Algorithm: sha1.New,
+		Algorithm: crypto.SHA256,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -123,24 +113,6 @@ func NewConfig(opts ...Option) *Config {
 		}
 	}
 	return c
-}
-
-// getAlgoParams retrieves the name and key size for the configured hash algorithm.
-func getAlgoParams(h func() hash.Hash) (string, int, error) {
-	if h == nil {
-		return "SHA1", 20, nil
-	}
-	ptr := reflect.ValueOf(h).Pointer()
-	if ptr == reflect.ValueOf(sha1.New).Pointer() {
-		return "SHA1", 20, nil
-	}
-	if ptr == reflect.ValueOf(sha256.New).Pointer() {
-		return "SHA256", 32, nil
-	}
-	if ptr == reflect.ValueOf(sha512.New).Pointer() {
-		return "SHA512", 64, nil
-	}
-	return "", 0, ErrUnsupportedAlgorithm
 }
 
 // GenerateCode creates a TOTP code for the given secret and current time (or configured time).
@@ -155,7 +127,6 @@ func GenerateCode(secret string, opts ...Option) (string, error) {
 
 	counter := uint64(config.Time.Unix()) / config.Period
 
-	// Delegate to HOTP
 	return hotp.GenerateCode(secret, counter,
 		hotp.WithLength(config.Length),
 		hotp.WithAlgorithm(config.Algorithm))
@@ -165,20 +136,16 @@ func GenerateCode(secret string, opts ...Option) (string, error) {
 // It accounts for clock skew by checking [current-skew, current+skew] periods.
 func Validate(passcode, secret string, opts ...Option) bool {
 	config := NewConfig(opts...)
-	if err := config.validateStatic(); err != nil || config.Skew > MaxSkew || config.Time.Unix() < 0 {
+	if err := config.validateStatic(); err != nil || config.Time.Unix() < 0 {
 		return false
 	}
 
-	// Optimization: Decode secret once
 	key, err := hotp.DecodeSecret(secret)
 	if err != nil {
 		return false
 	}
 
 	currentCounter := uint64(config.Time.Unix()) / config.Period
-
-	// Check current, then back, then forward
-	// Range: [current - skew, current + skew]
 
 	var start uint64
 	if currentCounter >= uint64(config.Skew) {
@@ -187,9 +154,6 @@ func Validate(passcode, secret string, opts ...Option) bool {
 		start = 0
 	}
 	end := currentCounter + uint64(config.Skew)
-	if end < currentCounter {
-		end = ^uint64(0)
-	}
 
 	for i := start; i <= end; i++ {
 		code, err := hotp.GenerateCodeFromKey(key, i,
@@ -198,41 +162,30 @@ func Validate(passcode, secret string, opts ...Option) bool {
 		if err == nil && utils.ConstantTimeCompare(code, passcode) {
 			return true
 		}
-		if i == end {
-			break
-		}
 	}
 
 	return false
 }
 
-// GenerateURL creates the otpauth:// URI string standard for authenticator apps.
-func GenerateURL(account, issuer, secret string, opts ...Option) string {
-	uri, _ := GenerateURLChecked(account, issuer, secret, opts...)
-	return uri
-}
-
-// GenerateURLChecked creates an otpauth URI and reports invalid configuration.
-func GenerateURLChecked(account, issuer, secret string, opts ...Option) (string, error) {
+// GenerateURL creates an otpauth URI and reports invalid configuration.
+func GenerateURL(account, issuer, secret string, opts ...Option) (string, error) {
 	config := NewConfig(opts...)
 	if err := config.validateStatic(); err != nil {
 		return "", err
 	}
-	algoName, _, err := getAlgoParams(config.Algorithm)
+	algoName, _, err := algorithm.Params(config.Algorithm)
 	if err != nil {
 		return "", err
 	}
 	if account == "" || issuer == "" || strings.Contains(account, ":") || strings.Contains(issuer, ":") {
 		return "", ErrInvalidLabel
 	}
-	key, err := hotp.DecodeSecret(secret)
-	if err != nil {
+	if _, err := hotp.DecodeSecret(secret); err != nil {
 		return "", err
 	}
-	canonicalSecret := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(key)
 
 	v := url.Values{}
-	v.Set("secret", canonicalSecret)
+	v.Set("secret", secret)
 	v.Set("issuer", issuer)
 	v.Set("period", strconv.FormatUint(config.Period, 10))
 	v.Set("digits", strconv.Itoa(config.Length))
@@ -252,7 +205,7 @@ func GenerateURLChecked(account, issuer, secret string, opts ...Option) (string,
 // It returns a standard image.Image which can be saved to a file or encoded to PNG.
 // The size parameter determines the width and height of the image in pixels.
 func GenerateQR(account, issuer, secret string, size int, opts ...Option) (image.Image, error) {
-	uri, err := GenerateURLChecked(account, issuer, secret, opts...)
+	uri, err := GenerateURL(account, issuer, secret, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -267,15 +220,12 @@ type Enrollment struct {
 }
 
 // GenerateEnrollment creates a new enrollment bundle including the QR code, URL, and Secret.
-// This is an all-in-one helper for setting up a new user.
 func GenerateEnrollment(account, issuer, secret string, size int, opts ...Option) (*Enrollment, error) {
-	// 1. Generate URL
-	urlStr, err := GenerateURLChecked(account, issuer, secret, opts...)
+	urlStr, err := GenerateURL(account, issuer, secret, opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Generate QR Image using helper
 	qrCode, err := createQR(urlStr, size)
 	if err != nil {
 		return nil, err
@@ -288,7 +238,6 @@ func GenerateEnrollment(account, issuer, secret string, size int, opts ...Option
 	}, nil
 }
 
-// createQR is a helper to generate a scaled QR code from a URI string.
 func createQR(uri string, size int) (image.Image, error) {
 	if size < 1 || size > MaxQRSize {
 		return nil, ErrInvalidQRSize
@@ -297,23 +246,19 @@ func createQR(uri string, size int) (image.Image, error) {
 	if err != nil {
 		return nil, err
 	}
-	qrCode, err = barcode.Scale(qrCode, size, size)
-	if err != nil {
-		return nil, err
-	}
-	return qrCode, nil
+	return barcode.Scale(qrCode, size, size)
 }
 
 func (c *Config) validateStatic() error {
+	if c.Skew > MaxSkew {
+		return ErrInvalidSkew
+	}
 	if c.Period == 0 {
 		return ErrInvalidPeriod
 	}
 	if c.Length < hotp.MinLength || c.Length > hotp.MaxLength {
 		return hotp.ErrInvalidLength
 	}
-	if c.Algorithm == nil {
-		return ErrUnsupportedAlgorithm
-	}
-	_, _, err := getAlgoParams(c.Algorithm)
+	_, _, err := algorithm.Params(c.Algorithm)
 	return err
 }

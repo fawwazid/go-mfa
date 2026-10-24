@@ -1,151 +1,71 @@
-# Go MFA Library
+# go-mfa
 
-`go-mfa` is a flexible, NIST-compliant Go library for generating and validating One-Time Passwords (OTPs).
-It supports:
-- **TOTP** (Time-Based One-Time Password, RFC 6238)
-- **HOTP** (HMAC-Based One-Time Password, RFC 4226)
-- **Generic OTP**: Secure random alphanumeric strings for SMS/Email verification.
+Install: `go get github.com/fawwazid/go-mfa/v2@v2.0.0`.
+See [v2 release notes](CHANGELOG.md) for breaking changes.
 
-## Features
-
-- **Standard Compliant**: Validated against RFC 4226 and RFC 6238 test vectors.
-- **Flexible**: Customize algorithm (SHA1, SHA256, SHA512), digit length (6, 8, etc.), and time period.
-- **QR Code Generation**: Built-in helper to generate QR codes compatible with Google Authenticator, Microsoft Authenticator, etc.
-- **Secure**: Uses `crypto/rand` and constant-time comparisons to prevent timing attacks.
-
-## Security considerations
-
-- Store MFA secrets encrypted and restrict access to them.
-- Rate-limit validation attempts; this library validates codes but does not track attempts.
-- Prevent replay in the application. For HOTP, atomically advance the counter after success. For TOTP, record the accepted time step when your threat model requires one-time use.
-- Prefer the default 30-second period and a small validation skew. Large windows increase the opportunity for code reuse.
-- Always handle errors returned by generation and enrollment functions.
-
-## Installation
-
-```bash
-go get github.com/fawwazid/go-mfa
-```
+HOTP/TOTP with HMAC-SHA256 or HMAC-SHA512, canonical Base32 enrollment, QR
+generation, and secure random OTP helpers. Requires Go 1.27.3.
 
 ## Usage
-
-### 1. Time-Based OTP (TOTP)
-
-Standard usage compatible with most authenticator apps (Google Auth, etc.).
 
 ```go
 package main
 
 import (
-    "fmt"
-    "github.com/fawwazid/go-mfa/totp"
+ "crypto"
+ "fmt"
+ "log"
+ "github.com/fawwazid/go-mfa/v2/totp"
 )
 
 func main() {
-    // Secret key (typically stored in your DB for the user)
-    // Must be Base32 encoded.
-    secret := "JBSWY3DPEHPK3PXP" 
-
-    // Generate a code for the current time
-    code, _ := totp.GenerateCode(secret)
-    fmt.Println("Current OTP:", code)
-
-    // Validate a user's input
-    valid := totp.Validate(code, secret)
-    if valid {
-        fmt.Println("Access Granted")
-    } else {
-        fmt.Println("Invalid Code")
-    }
+ secret, err := totp.GenerateSecret(crypto.SHA256)
+ if err != nil { log.Fatal(err) }
+ enrollment, err := totp.GenerateEnrollment("user@example.com", "App", secret, 256)
+ if err != nil { log.Fatal(err) }
+ code, err := totp.GenerateCode(secret)
+ if err != nil { log.Fatal(err) }
+ fmt.Println(enrollment.URL, totp.Validate(code, secret))
 }
 ```
 
-#### Easy Setup / Enrollment
+Enrollment secrets and URIs are sensitive. Protect them in storage and during
+provisioning. This example prints the URI only to demonstrate the API.
 
-Directly generate everything needed for a new user setup:
-- **Secret Key** (for manual entry)
-- **QR Code Image** (for scanning)
-- **URL** (raw string)
+## Algorithms and configuration
 
-```go
-import "github.com/fawwazid/go-mfa/totp"
+The default is SHA-256, six digits, a 30-second TOTP period, and skew one.
+`WithAlgorithm(crypto.SHA512)` selects SHA-512; use the same choice for secret
+generation, enrollment, and validation. There is no algorithm auto-detection.
 
-// 1. Generate a new random secret
-secret, _ := totp.GenerateSecret(nil) // nil = Default SHA1
+HOTP/TOTP secrets must be uppercase, unpadded standard Base32 and decode to at
+least 14 bytes. Codes require 6–10 digits. `GenerateSecret` creates 32 bytes for
+SHA-256 or 64 bytes for SHA-512.
 
-// 2. Generate Enrollment Bundle
-enrollment, _ := totp.GenerateEnrollment("user@example.com", "MyApp", secret, 256)
+- HOTP: `GenerateCode`, `GenerateCodeFromKey`, `DecodeSecret`, `Validate`.
+- TOTP: `GenerateSecret`, `GenerateCode`, `Validate`, `GenerateURL`,
+  `GenerateQR`, `GenerateEnrollment`.
+- `GenerateURL` returns `(string, error)`; invalid configuration is never hidden.
+- Random OTP: `otp.Generate()`, `WithLength`, and the charset options.
+  Charsets must have unique characters and at least six decimal digits'
+  equivalent output entropy. `otp.Validate` rejects empty expected codes.
 
-// 3. User Output
-fmt.Println("Manual Entry Code:", enrollment.Secret)
-// Save enrollment.Image to file or display in UI
-// enrollment.URL contains the raw otpauth URL
-```
+## Breaking changes
 
-#### Custom Configuration (NIST / Enterprise defaults)
+SHA-1, `DefaultAlgo`, `WithCustomBase32`, custom encoder options, and permissive
+secret normalization have been removed. `WithAlgorithm` and `GenerateSecret`
+now take `crypto.Hash`, not hash constructor functions or nil.
+`GenerateURLChecked` and the string-only URL wrapper have been replaced by the
+single error-returning `GenerateURL` API. Existing SHA-1 or weak-secret
+enrollments must be replaced before using this API.
 
-Use options to configure SHA256/SHA512, custom lengths, or time periods.
+## Application requirements
 
-```go
-import (
-    "crypto/sha256"
-    "github.com/fawwazid/go-mfa/totp"
-)
+Atomically consume accepted HOTP counters and TOTP time steps. Enforce expiry,
+per-account attempt limits, and protected enrollment. These helpers provide no
+persistent replay or rate-limit store. OTPs are not phishing-resistant.
+NIST SP 800-63B-4 does not permit email as an out-of-band authenticator; SMS is
+restricted. Email address verification is a separate use case.
 
-// Generate 8-digit, SHA256, 15-second period OTP
-code, _ := totp.GenerateCode(secret,
-    totp.WithAlgorithm(sha256.New),
-    totp.WithLength(8),
-    totp.WithPeriod(15),
-)
-```
-
-#### QR Code Generation
-
-Generate a QR code image to show to the user for setup.
-
-```go
-import "github.com/fawwazid/go-mfa/totp"
-// ...
-
-// Generate a 256x256 QR Code
-image, err := totp.GenerateQR("user@example.com", "MyApp", secret, 256)
-if err == nil {
-    // Save 'image' to file or serve via HTTP
-}
-```
-
-### 2. HMAC-Based OTP (HOTP)
-
-Event-based OTPs where the counter increments on every login.
-
-```go
-import "github.com/fawwazid/go-mfa/hotp"
-
-// Counter must be synchronized between client and server
-counter := uint64(5) 
-
-code, _ := hotp.GenerateCode(secret, counter)
-valid := hotp.Validate("123456", secret, counter)
-```
-
-### 3. Generic Random OTP (SMS / Email)
-
-Generate secure random strings for other verification channels.
-
-```go
-import "github.com/fawwazid/go-mfa/otp"
-
-// 6-digit number (Default)
-code, _ := otp.Generate() 
-
-// 8-character Alphanumeric
-alphaCode, _ := otp.Generate(
-    otp.WithLength(8), 
-    otp.WithAlphaNumeric(),
-)
-```
-
-## License
-
-[See License](LICENSE)
+See [SECURITY.md](SECURITY.md) for FIPS builds and scope.
+Run `go test ./...` and `go vet ./...`. License: [MIT](LICENSE).
