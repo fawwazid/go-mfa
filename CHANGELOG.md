@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.0.1](https://github.com/fawwazid/go-mfa/compare/v2.0.0...v2.0.1) (2026-11-01)
+
+
+### Bug Fixes
+
+* **release:** configure semantic versioning ([#8](https://github.com/fawwazid/go-mfa/issues/8)) ([ad37265](https://github.com/fawwazid/go-mfa/commit/ad37265eb89a6436e81712ede690dd97585c07c7))
+
+
+### Chores
+
+* configure Google Release Please ([5ca3ace](https://github.com/fawwazid/go-mfa/commit/5ca3acea3beb256f495146bc36e5c11809c80a0b))
+* reset Release Please baseline ([b472943](https://github.com/fawwazid/go-mfa/commit/b4729436df997103960e9e45fd250a146c6b5376))
+
+
+### Security
+
+* bound OTP inputs and random output ([#7](https://github.com/fawwazid/go-mfa/issues/7)) ([dcabe7c](https://github.com/fawwazid/go-mfa/commit/dcabe7c46201989cf452c619521dfec9af920cf8))
+
 ## v2.0.0 — 2026-10-24
 
 Use SHA-256/SHA-512 OTPs and canonical enrollment data.
