@@ -1,5 +1,22 @@
 # Changelog
 
+## [3.0.0](https://github.com/fawwazid/go-mfa/compare/v2.0.0...v3.0.0) (2026-11-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* prepare v2 security refactor ([#5](https://github.com/fawwazid/go-mfa/issues/5))
+
+### Features
+
+* implement NIST compliant MFA library ([#1](https://github.com/fawwazid/go-mfa/issues/1)) ([2aeeec3](https://github.com/fawwazid/go-mfa/commit/2aeeec3101f07a0cd659937f769c17f7e523111f))
+* prepare v2 security refactor ([#5](https://github.com/fawwazid/go-mfa/issues/5)) ([b9edf20](https://github.com/fawwazid/go-mfa/commit/b9edf20f89e01ef1c097824940515104e11d9a78))
+
+
+### Bug Fixes
+
+* harden-mfa-generation-and-validation ([#3](https://github.com/fawwazid/go-mfa/issues/3)) ([a6cbd6d](https://github.com/fawwazid/go-mfa/commit/a6cbd6d9145e73342ff20de3a69e2ce017a0b5f8))
+
 ## v2.0.0 — 2026-10-24
 
 Use SHA-256/SHA-512 OTPs and canonical enrollment data.
