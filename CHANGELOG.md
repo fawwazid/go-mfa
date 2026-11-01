@@ -26,3 +26,11 @@ Use SHA-256/SHA-512 OTPs and canonical enrollment data.
 ```sh
 go get github.com/fawwazid/go-mfa/v2@v2.0.0
 ```
+
+## v1.0.1 — 2026-10-15
+
+- Harden MFA code generation and validation.
+
+## v1.0.0 — 2025-12-13
+
+- Initial release of the NIST-guided MFA library.
