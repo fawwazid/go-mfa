@@ -53,6 +53,23 @@ SHA-256 or 64 bytes for SHA-512.
   equivalent output entropy. Output is capped at 1024 runes and charsets at
   4096 runes. `otp.Validate` rejects empty expected codes.
 
+## Semantic versioning
+
+Releases use Semantic Versioning through Release Please. A push to `main`
+opens or updates a release pull request. Merging that generated pull request
+creates the version tag and GitHub release.
+
+Use Conventional Commits in pull request titles (the squash-merge message):
+
+- `fix: ...`, including `fix(security): ...`, creates a patch release.
+- `feat: ...` creates a minor release.
+- `fix!: ...`, `feat!: ...`, or a `BREAKING CHANGE:` footer creates a
+  major release.
+- `docs:`, `test:`, `chore:`, and `ci:` do not trigger a release.
+
+A `security:` commit appears under Security in generated release notes, but
+does not trigger a version bump by itself. Do not edit the generated changelog
+manually.
 ## Breaking changes
 
 SHA-1, `DefaultAlgo`, `WithCustomBase32`, custom encoder options, and permissive
