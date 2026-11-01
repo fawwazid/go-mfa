@@ -35,11 +35,13 @@ provisioning. This example prints the URI only to demonstrate the API.
 ## Algorithms and configuration
 
 The default is SHA-256, six digits, a 30-second TOTP period, and skew one.
+Skew is limited to one time-step in either direction (three candidate steps).
 `WithAlgorithm(crypto.SHA512)` selects SHA-512; use the same choice for secret
 generation, enrollment, and validation. There is no algorithm auto-detection.
 
-HOTP/TOTP secrets must be uppercase, unpadded standard Base32 and decode to at
-least 14 bytes. Codes require 6–10 digits. `GenerateSecret` creates 32 bytes for
+HOTP/TOTP secrets must be uppercase, unpadded standard Base32 and decode to
+14–64 bytes. Account and issuer labels are limited to 256 bytes. Codes require
+6–10 digits. `GenerateSecret` creates 32 bytes for
 SHA-256 or 64 bytes for SHA-512.
 
 - HOTP: `GenerateCode`, `GenerateCodeFromKey`, `DecodeSecret`, `Validate`.
@@ -48,7 +50,8 @@ SHA-256 or 64 bytes for SHA-512.
 - `GenerateURL` returns `(string, error)`; invalid configuration is never hidden.
 - Random OTP: `otp.Generate()`, `WithLength`, and the charset options.
   Charsets must have unique characters and at least six decimal digits'
-  equivalent output entropy. `otp.Validate` rejects empty expected codes.
+  equivalent output entropy. Output is capped at 1024 runes and charsets at
+  4096 runes. `otp.Validate` rejects empty expected codes.
 
 ## Breaking changes
 

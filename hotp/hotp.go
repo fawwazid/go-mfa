@@ -14,15 +14,17 @@ import (
 )
 
 const (
-	DefaultLength   = 6
-	MinLength       = 6
-	MaxLength       = 10
-	MinSecretLength = 14
+	DefaultLength          = 6
+	MinLength              = 6
+	MaxLength              = 10
+	MinSecretLength        = 14
+	MaxSecretLength        = 64
+	MaxEncodedSecretLength = 103
 )
 
 var (
 	ErrInvalidLength = errors.New("HOTP length must be between 6 and 10 digits")
-	ErrInvalidSecret = errors.New("HOTP secret must contain at least 14 bytes")
+	ErrInvalidSecret = errors.New("HOTP secret must contain between 14 and 64 bytes")
 )
 
 // Config configures OTP generation with an explicit standard hash identifier.
@@ -72,7 +74,7 @@ func GenerateCodeFromKey(key []byte, counter uint64, opts ...Option) (string, er
 }
 
 func generateCodeFromKey(key []byte, counter uint64, c *Config) (string, error) {
-	if len(key) < MinSecretLength {
+	if len(key) < MinSecretLength || len(key) > MaxSecretLength {
 		return "", ErrInvalidSecret
 	}
 	h := hmac.New(c.Algorithm.New, key)
@@ -89,12 +91,15 @@ func generateCodeFromKey(key []byte, counter uint64, c *Config) (string, error) 
 
 // DecodeSecret rejects alternate casing, padding, whitespace, and noncanonical bits.
 func DecodeSecret(secret string) ([]byte, error) {
+	if len(secret) > MaxEncodedSecretLength {
+		return nil, ErrInvalidSecret
+	}
 	encoder := base32.StdEncoding.WithPadding(base32.NoPadding)
 	key, err := encoder.DecodeString(secret)
 	if err != nil {
 		return nil, fmt.Errorf("invalid Base32 secret: %w", err)
 	}
-	if len(key) < MinSecretLength {
+	if len(key) < MinSecretLength || len(key) > MaxSecretLength {
 		return nil, ErrInvalidSecret
 	}
 	if encoder.EncodeToString(key) != secret {

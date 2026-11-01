@@ -2,6 +2,7 @@ package utils
 
 import (
 	"encoding/binary"
+	"strings"
 	"testing"
 	"unicode/utf8"
 )
@@ -75,6 +76,33 @@ func TestCryptoRandomStringUnicode(t *testing.T) {
 	}
 }
 
+func TestCryptoRandomStringBoundsAndDuplicateRunes(t *testing.T) {
+	for _, tc := range []struct {
+		length  int
+		charset string
+	}{
+		{length: MaxRandomStringLength + 1, charset: "ab"},
+		{length: 1, charset: "aab"},
+		{length: 1, charset: strings.Repeat("x", MaxRandomCharsetSize+1)},
+	} {
+		if _, err := CryptoRandomString(tc.length, tc.charset); err == nil {
+			t.Errorf("CryptoRandomString(%d, charset length %d) accepted invalid input", tc.length, len(tc.charset))
+		}
+	}
+}
+
+func TestGenericRandomBytesBounds(t *testing.T) {
+	for _, size := range []int{0, -1, MaxRandomBytes + 1} {
+		if _, err := GenericRandomBytes(size); err == nil {
+			t.Errorf("GenericRandomBytes(%d) accepted an invalid size", size)
+		}
+	}
+	value, err := GenericRandomBytes(1)
+	if err != nil || len(value) != 1 {
+		t.Fatalf("GenericRandomBytes(1) = %d bytes, %v", len(value), err)
+	}
+}
+
 func TestConstantTimeCompare(t *testing.T) {
 	tests := []struct {
 		a, b string
@@ -85,6 +113,7 @@ func TestConstantTimeCompare(t *testing.T) {
 		{"123", "1234", false},
 		{"", "", true},
 		{"a", "b", false},
+		{strings.Repeat("x", MaxRandomStringBytes+1), strings.Repeat("x", MaxRandomStringBytes+1), false},
 	}
 	for _, tt := range tests {
 		if got := ConstantTimeCompare(tt.a, tt.b); got != tt.want {

@@ -1,5 +1,6 @@
-// Package otp implements generation and validation of generic, cryptographically secure One-Time Passwords (OTPs).
-// It supports numeric, alphabetic, and mixed alphanumeric codes, which is useful for SMS or Email verification.
+// Package otp generates random OTP values for application-defined verification
+// workflows. It supports numeric, alphabetic, and mixed alphanumeric codes.
+// This package does not deliver, expire, rate-limit, or consume generated codes.
 package otp
 
 import (
@@ -81,7 +82,10 @@ func NewConfig(opts ...Option) *Config {
 // Defaults to 6 digits if no options are provided.
 func Generate(opts ...Option) (string, error) {
 	config := NewConfig(opts...)
-	if config.Length < 1 || config.Length > 1024 || len(config.Charset) > 4096 || !utf8.ValidString(config.Charset) {
+	if config.Length < 1 || config.Length > utils.MaxRandomStringLength || len(config.Charset) > utils.MaxRandomCharsetSize*utf8.UTFMax {
+		return "", errors.New("invalid OTP length or charset")
+	}
+	if !utf8.ValidString(config.Charset) || utf8.RuneCountInString(config.Charset) > utils.MaxRandomCharsetSize {
 		return "", errors.New("invalid OTP length or charset")
 	}
 	unique := make(map[rune]bool)

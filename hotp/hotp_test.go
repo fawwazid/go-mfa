@@ -33,6 +33,9 @@ func TestInvalidConfiguration(t *testing.T) {
 	if _, err := GenerateCodeFromKey(make([]byte, 13), 0); err == nil {
 		t.Fatal("accepted short secret")
 	}
+	if _, err := GenerateCodeFromKey(make([]byte, MaxSecretLength+1), 0); err == nil {
+		t.Fatal("accepted overlong secret")
+	}
 	if _, err := GenerateCode(rfcSecretBase32, 0, nil); err != nil {
 		t.Fatal(err)
 	}
