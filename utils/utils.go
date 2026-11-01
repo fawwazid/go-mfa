@@ -11,10 +11,21 @@ import (
 	"unicode/utf8"
 )
 
-// GenericRandomBytes generates a slice of random bytes of the given size.
+const (
+	// MaxRandomBytes bounds allocations made by GenericRandomBytes.
+	MaxRandomBytes = 1 << 20
+	// MaxRandomStringLength bounds allocations made by CryptoRandomString.
+	MaxRandomStringLength = 1024
+	// MaxRandomStringBytes bounds UTF-8 output from CryptoRandomString.
+	MaxRandomStringBytes = MaxRandomStringLength * utf8.UTFMax
+	// MaxRandomCharsetSize bounds the rune set used by CryptoRandomString.
+	MaxRandomCharsetSize = 4096
+)
+
+// GenericRandomBytes generates a slice of at most MaxRandomBytes random bytes.
 func GenericRandomBytes(size int) ([]byte, error) {
-	if size <= 0 {
-		return nil, errors.New("size must be greater than 0")
+	if size <= 0 || size > MaxRandomBytes {
+		return nil, errors.New("size must be between 1 and MaxRandomBytes")
 	}
 	bytes := make([]byte, size)
 	if _, err := rand.Read(bytes); err != nil {
@@ -25,19 +36,33 @@ func GenericRandomBytes(size int) ([]byte, error) {
 
 // CryptoRandomString generates a cryptographically secure random string of the given length
 // using the characters from the provided charset.
-// It returns an error if length is <= 0 or charset is empty.
+// It rejects duplicate runes and returns an error for values outside the
+// documented length and charset bounds.
 func CryptoRandomString(length int, charset string) (string, error) {
-	if length <= 0 {
-		return "", errors.New("length must be greater than 0")
+	if length <= 0 || length > MaxRandomStringLength {
+		return "", errors.New("length must be between 1 and MaxRandomStringLength")
 	}
 	if charset == "" {
 		return "", errors.New("charset cannot be empty")
+	}
+	if len(charset) > MaxRandomCharsetSize*utf8.UTFMax {
+		return "", errors.New("charset exceeds MaxRandomCharsetSize")
 	}
 
 	if !utf8.ValidString(charset) {
 		return "", errors.New("charset must contain valid UTF-8")
 	}
 	runes := []rune(charset)
+	if len(runes) > MaxRandomCharsetSize {
+		return "", errors.New("charset exceeds MaxRandomCharsetSize")
+	}
+	seen := make(map[rune]struct{}, len(runes))
+	for _, r := range runes {
+		if _, ok := seen[r]; ok {
+			return "", errors.New("charset must not contain duplicate characters")
+		}
+		seen[r] = struct{}{}
+	}
 	result := make([]rune, length)
 	charsetLen := big.NewInt(int64(len(runes)))
 
@@ -52,8 +77,12 @@ func CryptoRandomString(length int, charset string) (string, error) {
 	return string(result), nil
 }
 
-// ConstantTimeCompare compares equal-length strings in constant time.
+// ConstantTimeCompare compares bounded, equal-length strings in constant time.
+// Inputs longer than MaxRandomStringBytes are rejected before allocation.
 func ConstantTimeCompare(a, b string) bool {
+	if len(a) != len(b) || len(a) > MaxRandomStringBytes {
+		return false
+	}
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 

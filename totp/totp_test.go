@@ -5,6 +5,7 @@ import (
 	"encoding/base32"
 	"errors"
 	"math"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -82,6 +83,24 @@ func TestGenerateURL(t *testing.T) {
 	}
 }
 
+func TestGenerateURLEscapesLabelPathSeparators(t *testing.T) {
+	secret := getRFCSecret(t, 32)
+	uri, err := GenerateURL("user/name", "issuer/team", secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Path != "/issuer/team:user/name" {
+		t.Fatalf("decoded path = %q", parsed.Path)
+	}
+	if !strings.HasPrefix(parsed.EscapedPath(), "/issuer%2Fteam:") || !strings.Contains(parsed.EscapedPath(), "user%2Fname") {
+		t.Fatalf("escaped path = %q, want label slashes escaped", parsed.EscapedPath())
+	}
+}
+
 func TestGenerateSecret(t *testing.T) {
 	for _, tc := range []struct {
 		hash   crypto.Hash
@@ -140,5 +159,8 @@ func TestInvalidConfiguration(t *testing.T) {
 	}
 	if _, err := GenerateURL("bad:account", "issuer", secret); !errors.Is(err, ErrInvalidLabel) {
 		t.Fatal(err)
+	}
+	if _, err := GenerateURL(strings.Repeat("a", MaxLabelLength+1), "issuer", secret); !errors.Is(err, ErrInvalidLabel) {
+		t.Fatal("accepted an overlong account label")
 	}
 }

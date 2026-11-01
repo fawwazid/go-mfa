@@ -5,10 +5,14 @@
 HOTP and TOTP support only crypto.SHA256 and crypto.SHA512; SHA-256 is the
 default in every runtime mode. SHA-1 and custom hash/encoder constructors are
 absent. Secrets must be canonical uppercase, unpadded Base32 with at least 14
-decoded bytes. Generated secrets contain 32 or 64 bytes. Codes require 6–10
-digits. Random OTPs require at least six decimal digits' equivalent entropy,
-unique charset characters, and bounded output length. Empty expected codes
-never match. GenerateURL returns errors rather than suppressing them.
+decoded bytes and at most 64 bytes. Generated secrets contain 32 or 64 bytes.
+Account and issuer labels are limited to 256 bytes. Codes require 6–10 digits.
+TOTP skew is limited to one time-step in either direction. Random OTPs
+require at least six decimal digits' equivalent entropy,
+unique charset characters, and bounded output length/charset size. Random byte
+requests are capped at 1 MiB. QR images are capped at 2048 pixels per side.
+Empty expected codes never match. GenerateURL returns errors rather than
+suppressing them.
 
 Applications must atomically consume accepted HOTP counters and TOTP steps,
 enforce expiry and per-account rate limits, protect secret storage, and secure
@@ -17,10 +21,8 @@ phishing-resistant. SP 800-63B-4 does not permit email for out-of-band
 authentication; SMS is restricted. Email address verification is a separate
 use case. These helpers do not establish an authentication assurance level.
 
-This release removes source and behavior compatibility with the APIs listed
-under Breaking changes in README.md. Unsupported inputs are rejected.
-Applications must replace unsupported records or enrollments before upgrading;
-this library does not provide conversion or permissive verification helpers.
+Review the Breaking changes section in README.md before upgrading. Removed APIs
+and unsupported inputs have no compatibility fallback or conversion helper.
 
 ## FIPS deployment
 
@@ -31,7 +33,7 @@ for its caller.
 
 The baseline is Go 1.27.3. The frozen Go module v1.0.0 corresponds to
 [CMVP certificate 5247](https://csrc.nist.gov/projects/cryptographic-module-validation-program/certificate/5247),
-checked active on 2026-10-24. Review certificate status and operating-environment
+checked active on 2026-11-01. Review certificate status and operating-environment
 coverage before deployment. A consuming application can build with
 GOFIPS140=v1.0.0 and must not override it with fips140=off.
 The strict only setting below is an assessment aid, not a production setting.
@@ -59,9 +61,8 @@ In PowerShell, set the variables with
 `'fips140=only'`, then run the go test command. Restore the original environment
 after checking.
 
-CI is configured for Windows and Linux, including Linux race detection.
-Local validation is limited to the platform and commands actually executed;
-see the workspace SECURITY_REVIEW.md for the recorded results.
+Run these checks on the target operating systems and Go version used for
+deployment, and record the environment and results in your project review.
 
 ## References
 

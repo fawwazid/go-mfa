@@ -21,18 +21,19 @@ import (
 )
 
 const (
-	DefaultPeriod = 30
-	DefaultSkew   = 1 // 1 period before and after
-	MaxSkew       = 10
-	MaxQRSize     = 4096
+	DefaultPeriod  = 30
+	DefaultSkew    = 1 // 1 period before and after
+	MaxSkew        = 1
+	MaxQRSize      = 2048
+	MaxLabelLength = 256
 )
 
 var (
 	ErrInvalidPeriod = errors.New("TOTP period must be greater than zero")
-	ErrInvalidSkew   = errors.New("TOTP skew must not exceed 10 periods")
+	ErrInvalidSkew   = errors.New("TOTP skew must not exceed 1 period")
 	ErrInvalidTime   = errors.New("TOTP time must not be before the Unix epoch")
-	ErrInvalidQRSize = errors.New("TOTP QR size must be between 1 and 4096 pixels")
-	ErrInvalidLabel  = errors.New("TOTP account and issuer must be non-empty and must not contain colons")
+	ErrInvalidQRSize = errors.New("TOTP QR size must be between 1 and 2048 pixels")
+	ErrInvalidLabel  = errors.New("TOTP account and issuer must be non-empty, at most 256 bytes, and must not contain colons")
 )
 
 // GenerateSecret creates a canonical Base32 secret for crypto.SHA256 or crypto.SHA512.
@@ -177,7 +178,7 @@ func GenerateURL(account, issuer, secret string, opts ...Option) (string, error)
 	if err != nil {
 		return "", err
 	}
-	if account == "" || issuer == "" || strings.Contains(account, ":") || strings.Contains(issuer, ":") {
+	if account == "" || issuer == "" || len(account) > MaxLabelLength || len(issuer) > MaxLabelLength || strings.Contains(account, ":") || strings.Contains(issuer, ":") {
 		return "", ErrInvalidLabel
 	}
 	if _, err := hotp.DecodeSecret(secret); err != nil {
@@ -195,13 +196,15 @@ func GenerateURL(account, issuer, secret string, opts ...Option) (string, error)
 		Scheme:   "otpauth",
 		Host:     "totp",
 		Path:     fmt.Sprintf("/%s:%s", issuer, account),
+		RawPath:  "/" + url.PathEscape(issuer) + ":" + url.PathEscape(account),
 		RawQuery: v.Encode(),
 	}
 
 	return u.String(), nil
 }
 
-// GenerateQR creates a QR code image for the TOTP configuration.
+// GenerateQR creates a QR code image for the TOTP configuration. Each
+// dimension is limited to MaxQRSize pixels to bound image allocation.
 // It returns a standard image.Image which can be saved to a file or encoded to PNG.
 // The size parameter determines the width and height of the image in pixels.
 func GenerateQR(account, issuer, secret string, size int, opts ...Option) (image.Image, error) {
