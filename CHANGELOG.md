@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.2](https://github.com/fawwazid/go-mfa/compare/v2.0.1...v2.0.2) (2026-11-08)
+
+
+### Documentation
+
+* document branch and pull request workflow ([3420e7a](https://github.com/fawwazid/go-mfa/commit/3420e7a784b2296176f4c39e081ea29e1346e605))
+
 ## [2.0.1](https://github.com/fawwazid/go-mfa/compare/v2.0.0...v2.0.1) (2026-11-01)
 
 
