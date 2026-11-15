@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.3](https://github.com/fawwazid/go-mfa/compare/v2.0.2...v2.0.3) (2026-11-15)
+
+
+### Bug Fixes
+
+* **security:** add replay-safe TOTP consumption ([#11](https://github.com/fawwazid/go-mfa/issues/11)) ([#12](https://github.com/fawwazid/go-mfa/issues/12)) ([d48bf04](https://github.com/fawwazid/go-mfa/commit/d48bf04345149b044c077dda3599fc56bc850658))
+
 ## [2.0.2](https://github.com/fawwazid/go-mfa/compare/v2.0.1...v2.0.2) (2026-11-08)
 
 
