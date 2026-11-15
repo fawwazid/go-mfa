@@ -4,7 +4,7 @@ Install: `go get github.com/fawwazid/go-mfa/v2@v2.0.0`.
 See [v2 release notes](CHANGELOG.md) for breaking changes.
 
 HOTP/TOTP with HMAC-SHA256 or HMAC-SHA512, canonical Base32 enrollment, QR
-generation, and secure random OTP helpers. Requires Go 1.27.3.
+generation, and secure random OTP helpers. Requires Go 1.27.4.
 
 ## Usage
 
@@ -45,8 +45,8 @@ HOTP/TOTP secrets must be uppercase, unpadded standard Base32 and decode to
 SHA-256 or 64 bytes for SHA-512.
 
 - HOTP: `GenerateCode`, `GenerateCodeFromKey`, `DecodeSecret`, `Validate`.
-- TOTP: `GenerateSecret`, `GenerateCode`, `Validate`, `GenerateURL`,
-  `GenerateQR`, `GenerateEnrollment`.
+- TOTP: `GenerateSecret`, `GenerateCode`, `Validate`, `ValidateWithStep`,
+  `ValidateAndConsume`, `GenerateURL`, `GenerateQR`, `GenerateEnrollment`.
 - `GenerateURL` returns `(string, error)`; invalid configuration is never hidden.
 - Random OTP: `otp.Generate()`, `WithLength`, and the charset options.
   Charsets must have unique characters and at least six decimal digits'
@@ -81,9 +81,12 @@ enrollments must be replaced before using this API.
 
 ## Application requirements
 
-Atomically consume accepted HOTP counters and TOTP time steps. Enforce expiry,
-per-account attempt limits, and protected enrollment. These helpers provide no
-persistent replay or rate-limit store. OTPs are not phishing-resistant.
+Atomically consume accepted HOTP counters and TOTP time steps. Prefer
+`ValidateAndConsume` so the matched step can be recorded with an atomic unique
+key; its callback must reject a step already used for that account. Enforce
+per-account attempt limits, expiry, and protected enrollment in the application.
+These helpers provide no persistent replay or rate-limit store. OTPs are not
+phishing-resistant.
 NIST SP 800-63B-4 does not permit email as an out-of-band authenticator; SMS is
 restricted. Email address verification is a separate use case.
 

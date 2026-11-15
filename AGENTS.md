@@ -19,6 +19,8 @@ changes. Do not create or edit changelogs; Release Please generates them.
 
 ## Development
 
+- Workspace invariants: go-mail envelopes do not flatten recipient slices; HOTP counters use a fixed buffer; MFA callers atomically consume TOTP steps and rate-limit attempts.
+
 - Workspace mail invariant: `go-mail` caps messages at 1,000 recipients, 100
   attachments, and 25 MiB; untrusted attachment bytes use its checked API.
 - Workspace MFA invariant: `ConstantTimeCompare` rejects strings longer than
@@ -40,6 +42,7 @@ changes. Do not create or edit changelogs; Release Please generates them.
 
 ## Test coverage notes
 
+- TOTP tests cover returning the matched time step and invoking the atomic consumer only after a valid code.
 - HOTP tests cover the maximum accepted raw secret size.
 - TOTP tests cover escaped label path separators and the account-label bound.
 - Utility tests cover random string and random byte limits plus duplicate

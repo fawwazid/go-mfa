@@ -14,7 +14,9 @@ requests are capped at 1 MiB. QR images are capped at 2048 pixels per side.
 Empty expected codes never match. GenerateURL returns errors rather than
 suppressing them.
 
-Applications must atomically consume accepted HOTP counters and TOTP steps,
+Applications must atomically consume accepted HOTP counters and TOTP steps.
+Prefer `totp.ValidateAndConsume`; its callback must persist the account and
+matched step atomically and reject duplicate steps. Applications must also
 enforce expiry and per-account rate limits, protect secret storage, and secure
 enrollment. There is no persistence layer in this library. OTPs are not
 phishing-resistant. SP 800-63B-4 does not permit email for out-of-band
@@ -31,9 +33,9 @@ depends on the validated Go module, its approved operating environment,
 security policy, and application controls. A library cannot enable FIPS mode
 for its caller.
 
-The baseline is Go 1.27.3. The frozen Go module v1.0.0 corresponds to
+The baseline is Go 1.27.4. The frozen Go module v1.0.0 corresponds to
 [CMVP certificate 5247](https://csrc.nist.gov/projects/cryptographic-module-validation-program/certificate/5247),
-checked active on 2026-11-01. Review certificate status and operating-environment
+checked active on 2026-11-14. Review certificate status and operating-environment
 coverage before deployment. A consuming application can build with
 GOFIPS140=v1.0.0 and must not override it with fips140=off.
 The strict only setting below is an assessment aid, not a production setting.

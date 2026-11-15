@@ -58,6 +58,47 @@ func TestValidateSkew(t *testing.T) {
 	}
 }
 
+func TestValidateWithStepAndConsume(t *testing.T) {
+	secret := getRFCSecret(t, 32)
+	now := time.Unix(1234567890, 0)
+	matchedStep := uint64(now.Unix()/DefaultPeriod - 1)
+	code, err := GenerateCode(secret, WithTime(time.Unix(int64(matchedStep)*DefaultPeriod, 0)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	step, valid := ValidateWithStep(code, secret, WithTime(now))
+	if !valid || step != matchedStep {
+		t.Fatalf("step=%d valid=%v, want step=%d valid=true", step, valid, matchedStep)
+	}
+
+	called := false
+	ok, err := ValidateAndConsume(code, secret, func(step uint64) (bool, error) {
+		called = true
+		return step == matchedStep, nil
+	}, WithTime(now))
+	if err != nil || !ok || !called {
+		t.Fatalf("consumed=%v called=%v err=%v", ok, called, err)
+	}
+	ok, err = ValidateAndConsume(code, secret, func(uint64) (bool, error) {
+		return false, nil // the store reports this time step was already consumed
+	}, WithTime(now))
+	if err != nil || ok {
+		t.Fatalf("replayed code consumed=%v err=%v", ok, err)
+	}
+
+	called = false
+	ok, err = ValidateAndConsume("invalid", secret, func(uint64) (bool, error) {
+		called = true
+		return true, nil
+	}, WithTime(now))
+	if err != nil || ok || called {
+		t.Fatalf("invalid code consumed=%v called=%v err=%v", ok, called, err)
+	}
+	if _, err := ValidateAndConsume(code, secret, nil, WithTime(now)); !errors.Is(err, ErrStepConsumerRequired) {
+		t.Fatalf("nil consumer error = %v", err)
+	}
+}
+
 func TestValidateAtMaximumUnixTime(t *testing.T) {
 	secret := getRFCSecret(t, 32)
 	opts := []Option{WithTime(time.Unix(math.MaxInt64, 0)), WithPeriod(1), WithSkew(MaxSkew)}
