@@ -29,11 +29,12 @@ const (
 )
 
 var (
-	ErrInvalidPeriod = errors.New("TOTP period must be greater than zero")
-	ErrInvalidSkew   = errors.New("TOTP skew must not exceed 1 period")
-	ErrInvalidTime   = errors.New("TOTP time must not be before the Unix epoch")
-	ErrInvalidQRSize = errors.New("TOTP QR size must be between 1 and 2048 pixels")
-	ErrInvalidLabel  = errors.New("TOTP account and issuer must be non-empty, at most 256 bytes, and must not contain colons")
+	ErrInvalidPeriod        = errors.New("TOTP period must be greater than zero")
+	ErrInvalidSkew          = errors.New("TOTP skew must not exceed 1 period")
+	ErrInvalidTime          = errors.New("TOTP time must not be before the Unix epoch")
+	ErrInvalidQRSize        = errors.New("TOTP QR size must be between 1 and 2048 pixels")
+	ErrInvalidLabel         = errors.New("TOTP account and issuer must be non-empty, at most 256 bytes, and must not contain colons")
+	ErrStepConsumerRequired = errors.New("TOTP step consumer is required")
 )
 
 // GenerateSecret creates a canonical Base32 secret for crypto.SHA256 or crypto.SHA512.
@@ -135,15 +136,29 @@ func GenerateCode(secret string, opts ...Option) (string, error) {
 
 // Validate checks if the passcode is correct for the given secret and current time.
 // It accounts for clock skew by checking [current-skew, current+skew] periods.
+// This helper is stateless: applications must atomically consume accepted
+// time steps, reject replay, and apply per-account attempt limits.
+//
+// Deprecated: use ValidateAndConsume with an atomic step consumer to prevent replay.
 func Validate(passcode, secret string, opts ...Option) bool {
+	_, valid := ValidateWithStep(passcode, secret, opts...)
+	return valid
+}
+
+// ValidateWithStep checks a passcode and returns the matched TOTP time step.
+// Applications can use the step as a key for atomic replay prevention.
+// It does not itself prevent replay; use ValidateAndConsume to couple validation
+// to an atomic step consumer.
+// It returns (0, false) when validation fails.
+func ValidateWithStep(passcode, secret string, opts ...Option) (uint64, bool) {
 	config := NewConfig(opts...)
 	if err := config.validateStatic(); err != nil || config.Time.Unix() < 0 {
-		return false
+		return 0, false
 	}
 
 	key, err := hotp.DecodeSecret(secret)
 	if err != nil {
-		return false
+		return 0, false
 	}
 
 	currentCounter := uint64(config.Time.Unix()) / config.Period
@@ -156,16 +171,35 @@ func Validate(passcode, secret string, opts ...Option) bool {
 	}
 	end := currentCounter + uint64(config.Skew)
 
+	var matchedStep uint64
+	matched := false
 	for i := start; i <= end; i++ {
 		code, err := hotp.GenerateCodeFromKey(key, i,
 			hotp.WithLength(config.Length),
 			hotp.WithAlgorithm(config.Algorithm))
 		if err == nil && utils.ConstantTimeCompare(code, passcode) {
-			return true
+			matchedStep = i
+			matched = true
 		}
 	}
 
-	return false
+	return matchedStep, matched
+}
+
+// ValidateAndConsume validates a passcode and passes its time step to consume.
+// The callback must atomically record (for example, with a unique database key)
+// each accepted step and return false when that step was already recorded.
+// The callback is not called for invalid codes. Applications must rate-limit
+// attempts separately, including failed attempts.
+func ValidateAndConsume(passcode, secret string, consume func(uint64) (bool, error), opts ...Option) (bool, error) {
+	if consume == nil {
+		return false, ErrStepConsumerRequired
+	}
+	step, valid := ValidateWithStep(passcode, secret, opts...)
+	if !valid {
+		return false, nil
+	}
+	return consume(step)
 }
 
 // GenerateURL creates an otpauth URI and reports invalid configuration.
