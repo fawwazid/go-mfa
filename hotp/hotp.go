@@ -78,7 +78,9 @@ func generateCodeFromKey(key []byte, counter uint64, c *Config) (string, error) 
 		return "", ErrInvalidSecret
 	}
 	h := hmac.New(c.Algorithm.New, key)
-	h.Write(utils.Itob(counter))
+	var counterBytes [8]byte
+	binary.BigEndian.PutUint64(counterBytes[:], counter)
+	h.Write(counterBytes[:])
 	mac := h.Sum(nil)
 	offset := mac[len(mac)-1] & 0xf
 	binaryCode := binary.BigEndian.Uint32(mac[offset:offset+4]) & 0x7fffffff
